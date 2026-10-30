@@ -1,0 +1,26 @@
+version: "3.8"
+
+services:
+  localstack:
+    container_name: qrshield-localstack
+    image: localstack/localstack:latest
+    ports:
+      - "4566:4566"            # LocalStack Edge Port (Gateway)
+      - "4510-4559:4510-4559"  # External service port range
+    environment:
+      - SERVICES=lambda,apigateway,dynamodb,iam,logs,sts
+      - AWS_DEFAULT_REGION=us-east-1
+      - DEFAULT_REGION=us-east-1
+      - LAMBDA_EXECUTOR=local
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - DEBUG=0
+    volumes:
+      - "${LOCALSTACK_VOLUME_DIR:-./.localstack}:/var/lib/localstack"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+

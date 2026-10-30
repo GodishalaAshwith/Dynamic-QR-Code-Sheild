@@ -1,0 +1,21 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "api/validate.py", "use": "@vercel/python" },
+    { "src": "frontend/**", "use": "@vercel/static" }
+  ],
+  "routes": [
+    { "src": "/api/validate", "dest": "api/validate.py" },
+    { "src": "/(.*)", "dest": "frontend/$1" }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "POST, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" }
+      ]
+    }
+  ]
+}

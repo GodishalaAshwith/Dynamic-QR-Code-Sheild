@@ -1,0 +1,1132 @@
+<!DOCTYPE html>
+<!--
+  QR-Shield — Dynamic QR Code Shield & Phishing Link Validator
+  =============================================================
+  A production-quality single-page application that scans QR codes
+  (camera / file upload / manual URL) and validates the embedded link
+  against a serverless heuristic + threat-intel pipeline.
+
+  Stack: Vanilla HTML5, CSS3, ES6 — zero build tools.
+  CDN  : html5-qrcode v2.3.8
+  API  : POST /api/validate  (Vercel serverless Python)
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="QR-Shield — Scan QR codes and validate URLs against phishing threats in real-time." />
+  <meta name="theme-color" content="#0a0e17" />
+  <title>QR-Shield — Phishing Link Validator</title>
+
+  <!-- ====================== INLINE STYLES ====================== -->
+  <style>
+    /* ---------------------------------------------------------- */
+    /*  CSS Custom Properties (design tokens)                     */
+    /* ---------------------------------------------------------- */
+    :root {
+      --bg-primary:   #0a0e17;
+      --bg-card:      rgba(15, 22, 36, 0.85);
+      --bg-card-hover:rgba(20, 30, 50, 0.9);
+      --accent:       #00ff88;
+      --accent-dim:   #00cc6a;
+      --warning:      #ff8c00;
+      --danger:       #ff3366;
+      --safe:         #00ff88;
+      --text:         #e0e6f0;
+      --text-muted:   #7a8ba8;
+      --border:       rgba(0, 255, 136, 0.12);
+      --glass-bg:     rgba(15, 22, 36, 0.6);
+      --glass-border: rgba(0, 255, 136, 0.15);
+      --radius:       14px;
+      --shadow:       0 8px 32px rgba(0, 0, 0, 0.4);
+      --font:         'Segoe UI', system-ui, -apple-system, sans-serif;
+      --mono:         'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    }
+
+    /* ---------------------------------------------------------- */
+    /*  Reset & Base                                              */
+    /* ---------------------------------------------------------- */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html {
+      scroll-behavior: smooth;
+      background: var(--bg-primary);
+      color: var(--text);
+      font-family: var(--font);
+      line-height: 1.6;
+    }
+
+    body {
+      min-height: 100vh;
+      background:
+        radial-gradient(ellipse at 20% 0%, rgba(0,255,136,.06) 0%, transparent 60%),
+        radial-gradient(ellipse at 80% 100%, rgba(0,100,255,.05) 0%, transparent 60%),
+        var(--bg-primary);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ---------------------------------------------------------- */
+    /*  Utility                                                   */
+    /* ---------------------------------------------------------- */
+    .container {
+      width: 100%;
+      max-width: 720px;
+      padding: 0 1rem;
+    }
+    .hidden { display: none !important; }
+
+    /* Glass card */
+    .card {
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      box-shadow: var(--shadow);
+      padding: 1.75rem;
+      margin-bottom: 1.5rem;
+      transition: transform .25s, box-shadow .25s;
+    }
+    .card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 40px rgba(0,0,0,.5);
+    }
+
+    /* ---------------------------------------------------------- */
+    /*  Animated Shield Logo (pure CSS)                           */
+    /* ---------------------------------------------------------- */
+    .shield-icon {
+      position: relative;
+      width: 64px; height: 72px;
+      margin: 0 auto 1rem;
+      animation: shieldPulse 2.5s ease-in-out infinite;
+    }
+    .shield-icon::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, var(--accent) 0%, #00cc6a 100%);
+      clip-path: polygon(50% 0%, 100% 18%, 100% 62%, 50% 100%, 0% 62%, 0% 18%);
+      filter: drop-shadow(0 0 18px rgba(0,255,136,.35));
+    }
+    .shield-icon::after {
+      content: '✓';
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--bg-primary);
+      padding-top: 4px;
+    }
+
+    @keyframes shieldPulse {
+      0%, 100% { transform: scale(1);   filter: drop-shadow(0 0 6px rgba(0,255,136,.3)); }
+      50%      { transform: scale(1.08); filter: drop-shadow(0 0 20px rgba(0,255,136,.55)); }
+    }
+
+    /* ---------------------------------------------------------- */
+    /*  Header                                                    */
+    /* ---------------------------------------------------------- */
+    header {
+      text-align: center;
+      padding: 2.5rem 1rem 1.5rem;
+    }
+    header h1 {
+      font-size: 2.2rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      background: linear-gradient(90deg, var(--accent), #00ccff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    header p {
+      color: var(--text-muted);
+      margin-top: .35rem;
+      font-size: .95rem;
+    }
+
+    /* ---------------------------------------------------------- */
+    /*  Tabs                                                      */
+    /* ---------------------------------------------------------- */
+    .tabs {
+      display: flex;
+      gap: .5rem;
+      margin-bottom: 1.25rem;
+      flex-wrap: wrap;
+    }
+    .tab-btn {
+      flex: 1;
+      min-width: 120px;
+      padding: .7rem .5rem;
+      background: rgba(255,255,255,.04);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text-muted);
+      font-size: .85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .2s;
+      text-align: center;
+    }
+    .tab-btn:hover { background: rgba(0,255,136,.07); color: var(--text); }
+    .tab-btn.active {
+      background: rgba(0,255,136,.12);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; animation: fadeIn .3s ease; }
+
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* ---------------------------------------------------------- */
+    /*  Scanner region                                            */
+    /* ---------------------------------------------------------- */
+    #qr-reader {
+      width: 100%;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    #qr-reader video { border-radius: 10px; }
+
+    .scan-controls {
+      display: flex;
+      gap: .5rem;
+      margin-top: .75rem;
+      flex-wrap: wrap;
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: .5rem;
+      padding: .75rem 1.5rem;
+      border: none;
+      border-radius: 10px;
+      font-size: .9rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all .2s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), #00cc6a);
+      color: var(--bg-primary);
+    }
+    .btn-primary:hover { filter: brightness(1.1); transform: translateY(-1px); }
+    .btn-primary:disabled { opacity: .45; cursor: not-allowed; filter: none; transform: none; }
+
+    .btn-outline {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+    }
+    .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+
+    .btn-danger {
+      background: rgba(255,51,102,.15);
+      border: 1px solid var(--danger);
+      color: var(--danger);
+    }
+    .btn-danger:hover { background: rgba(255,51,102,.25); }
+
+    /* ---------------------------------------------------------- */
+    /*  Drop zone                                                 */
+    /* ---------------------------------------------------------- */
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 2.5rem 1rem;
+      text-align: center;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all .25s;
+      position: relative;
+    }
+    .drop-zone:hover,
+    .drop-zone.drag-over {
+      border-color: var(--accent);
+      background: rgba(0,255,136,.04);
+      color: var(--text);
+    }
+    .drop-zone .drop-icon { font-size: 2.5rem; margin-bottom: .5rem; }
+    .drop-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    /* ---------------------------------------------------------- */
+    /*  URL input                                                 */
+    /* ---------------------------------------------------------- */
+    .url-input-group {
+      display: flex;
+      gap: .5rem;
+    }
+    .url-input-group input {
+      flex: 1;
+      padding: .75rem 1rem;
+      background: rgba(255,255,255,.05);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      font-size: .95rem;
+      font-family: var(--mono);
+      outline: none;
+      transition: border-color .2s;
+    }
+    .url-input-group input:focus { border-color: var(--accent); }
+    .url-input-group input::placeholder { color: var(--text-muted); }
+
+    /* ---------------------------------------------------------- */
+    /*  Loader overlay                                            */
+    /* ---------------------------------------------------------- */
+    .loader-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(10,14,23,.85);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      gap: 1.2rem;
+    }
+    .spinner {
+      width: 52px; height: 52px;
+      border: 4px solid rgba(0,255,136,.15);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loader-overlay p { color: var(--text-muted); font-size: .95rem; }
+
+    /* ---------------------------------------------------------- */
+    /*  Results section                                           */
+    /* ---------------------------------------------------------- */
+    #results-section {
+      animation: slideUp .5s ease;
+    }
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(30px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Verdict badge */
+    .verdict-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: .6rem;
+      padding: .65rem 1.6rem;
+      border-radius: 50px;
+      font-size: 1.1rem;
+      font-weight: 800;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    .verdict-badge.safe       { background: rgba(0,255,136,.12); color: var(--safe);    border: 1px solid var(--safe); }
+    .verdict-badge.suspicious { background: rgba(255,140,0,.12); color: var(--warning); border: 1px solid var(--warning); }
+    .verdict-badge.malicious  { background: rgba(255,51,102,.12); color: var(--danger); border: 1px solid var(--danger); }
+
+    /* Circular score */
+    .score-ring-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin: 1.5rem 0;
+    }
+    .score-ring {
+      position: relative;
+      width: 130px; height: 130px;
+    }
+    .score-ring svg {
+      width: 100%; height: 100%;
+      transform: rotate(-90deg);
+    }
+    .score-ring circle {
+      fill: none;
+      stroke-width: 8;
+      cx: 65; cy: 65; r: 56;
+    }
+    .score-ring .bg   { stroke: rgba(255,255,255,.06); }
+    .score-ring .fg   {
+      stroke-dasharray: 351.86;
+      stroke-dashoffset: 351.86;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 1.2s ease;
+    }
+    .score-ring .score-label {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .score-ring .score-num {
+      font-size: 2rem;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .score-ring .score-of {
+      font-size: .7rem;
+      color: var(--text-muted);
+    }
+    .score-caption {
+      margin-top: .5rem;
+      font-size: .85rem;
+      color: var(--text-muted);
+    }
+
+    /* URL display rows */
+    .url-row {
+      display: flex;
+      align-items: flex-start;
+      gap: .75rem;
+      padding: .85rem 1rem;
+      background: rgba(255,255,255,.03);
+      border-radius: 10px;
+      margin-bottom: .5rem;
+      word-break: break-all;
+    }
+    .url-row .label {
+      flex-shrink: 0;
+      font-size: .75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      color: var(--text-muted);
+      min-width: 80px;
+      padding-top: 2px;
+    }
+    .url-row .value {
+      flex: 1;
+      font-family: var(--mono);
+      font-size: .85rem;
+      color: var(--text);
+    }
+    .copy-btn {
+      flex-shrink: 0;
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-muted);
+      padding: .3rem .5rem;
+      font-size: .7rem;
+      cursor: pointer;
+      transition: all .2s;
+    }
+    .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* Redirect chain */
+    .chain-step {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      padding: .6rem 0;
+      font-size: .82rem;
+      font-family: var(--mono);
+    }
+    .chain-hop {
+      flex-shrink: 0;
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: rgba(0,255,136,.1);
+      border: 1px solid var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: .7rem;
+      font-weight: 700;
+      color: var(--accent);
+    }
+    .chain-arrow {
+      color: var(--text-muted);
+      font-size: 1.1rem;
+      flex-shrink: 0;
+    }
+    .chain-url {
+      word-break: break-all;
+      color: var(--text);
+    }
+    .chain-status {
+      flex-shrink: 0;
+      font-size: .7rem;
+      padding: .15rem .5rem;
+      border-radius: 50px;
+      font-weight: 600;
+    }
+    .chain-status.redirect { background: rgba(255,140,0,.15); color: var(--warning); }
+    .chain-status.ok       { background: rgba(0,255,136,.12); color: var(--safe); }
+    .chain-status.error    { background: rgba(255,51,102,.12); color: var(--danger); }
+
+    /* Threat flags */
+    .flag-item {
+      display: flex;
+      gap: .75rem;
+      padding: .75rem 1rem;
+      background: rgba(255,51,102,.04);
+      border-left: 3px solid var(--danger);
+      border-radius: 0 10px 10px 0;
+      margin-bottom: .5rem;
+      align-items: flex-start;
+    }
+    .flag-item.low-risk {
+      background: rgba(255,140,0,.04);
+      border-left-color: var(--warning);
+    }
+    .flag-icon { font-size: 1.1rem; flex-shrink: 0; padding-top: 1px; }
+    .flag-rule {
+      font-family: var(--mono);
+      font-size: .75rem;
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .flag-desc {
+      font-size: .85rem;
+      color: var(--text-muted);
+      margin-top: .15rem;
+    }
+    .flag-weight {
+      font-size: .7rem;
+      font-weight: 700;
+      margin-left: auto;
+      flex-shrink: 0;
+      padding: .15rem .5rem;
+      border-radius: 50px;
+      background: rgba(255,255,255,.05);
+      color: var(--text-muted);
+    }
+
+    /* Performance bar */
+    .perf-bar {
+      display: flex;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+      padding: .75rem 1rem;
+      background: rgba(255,255,255,.03);
+      border-radius: 10px;
+      margin-top: .75rem;
+      font-size: .8rem;
+    }
+    .perf-item { display: flex; align-items: center; gap: .4rem; }
+    .perf-item .perf-label { color: var(--text-muted); }
+    .perf-item .perf-value { color: var(--text); font-weight: 600; font-family: var(--mono); }
+
+    /* Section headers */
+    .section-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: .75rem;
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+    .section-title .icon { font-size: 1.1rem; }
+
+    /* ---------------------------------------------------------- */
+    /*  Error toast                                                */
+    /* ---------------------------------------------------------- */
+    .toast {
+      position: fixed;
+      bottom: 1.5rem;
+      left: 50%;
+      transform: translateX(-50%) translateY(120px);
+      background: var(--danger);
+      color: #fff;
+      padding: .8rem 1.6rem;
+      border-radius: 10px;
+      font-size: .9rem;
+      font-weight: 600;
+      z-index: 2000;
+      opacity: 0;
+      transition: all .35s ease;
+      max-width: 90vw;
+      text-align: center;
+    }
+    .toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+
+    /* ---------------------------------------------------------- */
+    /*  Footer                                                    */
+    /* ---------------------------------------------------------- */
+    footer {
+      text-align: center;
+      padding: 2rem 1rem 1.5rem;
+      color: var(--text-muted);
+      font-size: .78rem;
+      margin-top: auto;
+    }
+    footer span { color: var(--accent); }
+
+    /* ---------------------------------------------------------- */
+    /*  Responsive                                                */
+    /* ---------------------------------------------------------- */
+    @media (max-width: 600px) {
+      header h1 { font-size: 1.6rem; }
+      .card { padding: 1.2rem; }
+      .tabs { gap: .35rem; }
+      .tab-btn { font-size: .78rem; padding: .6rem .35rem; min-width: 90px; }
+      .url-input-group { flex-direction: column; }
+      .url-input-group .btn { width: 100%; justify-content: center; }
+      .score-ring { width: 110px; height: 110px; }
+      .score-ring circle { cx: 55; cy: 55; r: 46; }
+      .score-ring .score-num { font-size: 1.6rem; }
+      .perf-bar { flex-direction: column; gap: .5rem; }
+    }
+
+    @media (min-width: 601px) and (max-width: 900px) {
+      .container { max-width: 640px; }
+    }
+
+    /* ---------------------------------------------------------- */
+    /*  html5-qrcode overrides                                    */
+    /* ---------------------------------------------------------- */
+    #qr-reader__scan_region { background: transparent !important; }
+    #qr-reader__dashboard { padding: .75rem !important; }
+    #qr-reader__dashboard button {
+      background: rgba(0,255,136,.1) !important;
+      border: 1px solid var(--accent) !important;
+      color: var(--accent) !important;
+      border-radius: 8px !important;
+      padding: .5rem 1rem !important;
+      font-weight: 600 !important;
+      cursor: pointer !important;
+    }
+    #qr-reader__dashboard select {
+      background: rgba(255,255,255,.05) !important;
+      border: 1px solid var(--border) !important;
+      color: var(--text) !important;
+      border-radius: 8px !important;
+      padding: .4rem .6rem !important;
+    }
+    #qr-reader__status_span { color: var(--text-muted) !important; }
+    #qr-reader img { display: none !important; } /* hide branding image */
+  </style>
+</head>
+
+<body>
+
+  <!-- ======================== HEADER ========================= -->
+  <header>
+    <div class="shield-icon" aria-hidden="true"></div>
+    <h1>QR-Shield</h1>
+    <p>Dynamic QR Code Shield &amp; Phishing Link Validator</p>
+  </header>
+
+  <!-- ======================== SCANNER ======================== -->
+  <main class="container">
+    <div class="card" id="scanner-card">
+      <!-- Tabs -->
+      <div class="tabs" role="tablist">
+        <button class="tab-btn active" data-tab="camera" role="tab" aria-selected="true">📷 Camera Scan</button>
+        <button class="tab-btn"        data-tab="upload" role="tab" aria-selected="false">📁 Upload Image</button>
+        <button class="tab-btn"        data-tab="url"    role="tab" aria-selected="false">🔗 Enter URL</button>
+      </div>
+
+      <!-- Camera tab -->
+      <div class="tab-content active" id="tab-camera" role="tabpanel">
+        <div id="qr-reader"></div>
+        <div class="scan-controls">
+          <button class="btn btn-primary" id="btn-start-cam">▶ Start Camera</button>
+          <button class="btn btn-danger hidden" id="btn-stop-cam">⏹ Stop Camera</button>
+        </div>
+      </div>
+
+      <!-- Upload tab -->
+      <div class="tab-content" id="tab-upload" role="tabpanel">
+        <div class="drop-zone" id="drop-zone">
+          <div class="drop-icon">📁</div>
+          <p><strong>Drop a QR code image here</strong></p>
+          <p style="font-size:.8rem; margin-top:.25rem;">or click to browse files</p>
+          <input type="file" id="file-input" accept="image/*" aria-label="Upload QR code image" />
+        </div>
+      </div>
+
+      <!-- URL tab -->
+      <div class="tab-content" id="tab-url" role="tabpanel">
+        <div class="url-input-group">
+          <input type="url" id="url-input" placeholder="https://example.com/suspicious-link" aria-label="URL to validate" />
+          <button class="btn btn-primary" id="btn-validate-url">🔍 Validate</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====================== RESULTS ======================== -->
+    <div id="results-section" class="hidden">
+      <!-- Verdict + Score -->
+      <div class="card" id="verdict-card" style="text-align:center;">
+        <div id="verdict-badge" class="verdict-badge safe">✓ SAFE</div>
+
+        <div class="score-ring-wrap">
+          <div class="score-ring">
+            <svg viewBox="0 0 130 130">
+              <circle class="bg" />
+              <circle class="fg" id="score-fg" />
+            </svg>
+            <div class="score-label">
+              <span class="score-num" id="score-num">0</span>
+              <span class="score-of">/ 100</span>
+            </div>
+          </div>
+          <span class="score-caption">Risk Score</span>
+        </div>
+      </div>
+
+      <!-- URLs -->
+      <div class="card">
+        <div class="section-title"><span class="icon">🔗</span> URL Details</div>
+        <div class="url-row">
+          <span class="label">Input</span>
+          <span class="value" id="res-input-url">—</span>
+          <button class="copy-btn" data-copy="res-input-url" title="Copy URL">📋</button>
+        </div>
+        <div class="url-row">
+          <span class="label">Final</span>
+          <span class="value" id="res-final-url">—</span>
+          <button class="copy-btn" data-copy="res-final-url" title="Copy URL">📋</button>
+        </div>
+      </div>
+
+      <!-- Redirect chain -->
+      <div class="card" id="chain-card">
+        <div class="section-title"><span class="icon">🔀</span> Redirect Chain</div>
+        <div id="chain-container"></div>
+      </div>
+
+      <!-- Threat flags -->
+      <div class="card" id="flags-card">
+        <div class="section-title"><span class="icon">⚠️</span> Threat Flags</div>
+        <div id="flags-container"></div>
+      </div>
+
+      <!-- Performance -->
+      <div class="perf-bar" id="perf-bar">
+        <div class="perf-item">
+          <span class="perf-label">⏱ Execution:</span>
+          <span class="perf-value" id="perf-time">—</span>
+        </div>
+        <div class="perf-item">
+          <span class="perf-label">💾 Cache:</span>
+          <span class="perf-value" id="perf-cache">—</span>
+        </div>
+        <div class="perf-item">
+          <span class="perf-label">🕐 Scanned:</span>
+          <span class="perf-value" id="perf-scanned">—</span>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ======================== FOOTER ========================= -->
+  <footer>
+    <p>Powered by <span>Serverless Computing</span> · QR-Shield © 2025</p>
+    <p style="margin-top:.25rem;">Cloud Computing Course — Dynamic QR Code Shield Project</p>
+  </footer>
+
+  <!-- ===================== LOADER OVERLAY ==================== -->
+  <div class="loader-overlay hidden" id="loader">
+    <div class="spinner"></div>
+    <p>Validating URL — tracing redirects &amp; checking threats…</p>
+  </div>
+
+  <!-- ===================== TOAST ============================= -->
+  <div class="toast" id="toast"></div>
+
+  <!-- =================== EXTERNAL SCRIPTS ==================== -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+  <!-- =================== APPLICATION JS ====================== -->
+  <script>
+  (() => {
+    'use strict';
+
+    /* =========================================================
+     *  Configuration
+     * ========================================================= */
+
+    /** API endpoint — change for different deployment targets. */
+    const API_ENDPOINT = '/api/validate';
+
+    // For LocalStack / local testing, uncomment the line below:
+    // const API_ENDPOINT = 'http://localhost:4566/restapis/{id}/prod/_user_request_/api/validate';
+
+    /* =========================================================
+     *  DOM references
+     * ========================================================= */
+    const $ = (sel) => document.querySelector(sel);
+    const $$ = (sel) => document.querySelectorAll(sel);
+
+    const elLoader        = $('#loader');
+    const elToast         = $('#toast');
+    const elResults       = $('#results-section');
+    const elVerdictBadge  = $('#verdict-badge');
+    const elScoreNum      = $('#score-num');
+    const elScoreFg       = $('#score-fg');
+    const elInputUrl      = $('#res-input-url');
+    const elFinalUrl      = $('#res-final-url');
+    const elChainCtr      = $('#chain-container');
+    const elFlagsCtr      = $('#flags-container');
+    const elFlagsCard     = $('#flags-card');
+    const elPerfTime      = $('#perf-time');
+    const elPerfCache     = $('#perf-cache');
+    const elPerfScanned   = $('#perf-scanned');
+
+    /* =========================================================
+     *  Tabs
+     * ========================================================= */
+    $$('.tab-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        $$('.tab-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-selected', 'false'); });
+        $$('.tab-content').forEach(c => c.classList.remove('active'));
+        btn.classList.add('active');
+        btn.setAttribute('aria-selected', 'true');
+        $(`#tab-${btn.dataset.tab}`).classList.add('active');
+
+        // Stop camera when switching away
+        if (btn.dataset.tab !== 'camera' && scannerRunning) stopCamera();
+      });
+    });
+
+    /* =========================================================
+     *  Toast helper
+     * ========================================================= */
+    let toastTimeout = null;
+    function showToast(msg, durationMs = 4000) {
+      elToast.textContent = msg;
+      elToast.classList.add('show');
+      clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => elToast.classList.remove('show'), durationMs);
+    }
+
+    /* =========================================================
+     *  QR Camera Scanner (html5-qrcode)
+     * ========================================================= */
+    let html5QrCode = null;
+    let scannerRunning = false;
+
+    const btnStartCam = $('#btn-start-cam');
+    const btnStopCam  = $('#btn-stop-cam');
+
+    btnStartCam.addEventListener('click', startCamera);
+    btnStopCam.addEventListener('click', stopCamera);
+
+    function startCamera() {
+      if (scannerRunning) return;
+      if (!html5QrCode) {
+        html5QrCode = new Html5Qrcode('qr-reader');
+      }
+      btnStartCam.disabled = true;
+
+      Html5Qrcode.getCameras().then((cameras) => {
+        if (!cameras || cameras.length === 0) {
+          showToast('No camera found on this device.');
+          btnStartCam.disabled = false;
+          return;
+        }
+        const cameraId = cameras[cameras.length - 1].id; // prefer rear camera
+        html5QrCode.start(
+          cameraId,
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          onQrDecoded,
+          () => {} // ignore scan failure frames
+        ).then(() => {
+          scannerRunning = true;
+          btnStartCam.classList.add('hidden');
+          btnStopCam.classList.remove('hidden');
+        }).catch((err) => {
+          showToast('Camera error: ' + err);
+          btnStartCam.disabled = false;
+        });
+      }).catch((err) => {
+        showToast('Camera access denied: ' + err);
+        btnStartCam.disabled = false;
+      });
+    }
+
+    function stopCamera() {
+      if (!html5QrCode || !scannerRunning) return;
+      html5QrCode.stop().then(() => {
+        scannerRunning = false;
+        btnStopCam.classList.add('hidden');
+        btnStartCam.classList.remove('hidden');
+        btnStartCam.disabled = false;
+      }).catch(() => {});
+    }
+
+    function onQrDecoded(decodedText) {
+      // Auto-validate
+      stopCamera();
+      validateURL(decodedText);
+    }
+
+    /* =========================================================
+     *  File Upload / Drop Zone
+     * ========================================================= */
+    const elDropZone  = $('#drop-zone');
+    const elFileInput = $('#file-input');
+
+    elDropZone.addEventListener('dragover',  (e) => { e.preventDefault(); elDropZone.classList.add('drag-over'); });
+    elDropZone.addEventListener('dragleave', ()  => { elDropZone.classList.remove('drag-over'); });
+    elDropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      elDropZone.classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      if (file) decodeFromFile(file);
+    });
+
+    elFileInput.addEventListener('change', () => {
+      if (elFileInput.files[0]) decodeFromFile(elFileInput.files[0]);
+    });
+
+    function decodeFromFile(file) {
+      if (!file.type.startsWith('image/')) {
+        showToast('Please upload an image file.');
+        return;
+      }
+      const scanner = new Html5Qrcode('qr-reader');
+      scanner.scanFile(file, true).then((decoded) => {
+        validateURL(decoded);
+      }).catch(() => {
+        showToast('Could not detect a QR code in the image.');
+      });
+    }
+
+    /* =========================================================
+     *  Manual URL input
+     * ========================================================= */
+    const elUrlInput     = $('#url-input');
+    const btnValidateUrl = $('#btn-validate-url');
+
+    btnValidateUrl.addEventListener('click', () => {
+      const url = elUrlInput.value.trim();
+      if (!url) { showToast('Please enter a URL.'); return; }
+      validateURL(url);
+    });
+
+    elUrlInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') btnValidateUrl.click();
+    });
+
+    /* =========================================================
+     *  Copy-to-clipboard buttons
+     * ========================================================= */
+    $$('.copy-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const targetId = btn.dataset.copy;
+        const text = document.getElementById(targetId)?.textContent || '';
+        navigator.clipboard.writeText(text).then(() => {
+          btn.textContent = '✓';
+          setTimeout(() => { btn.textContent = '📋'; }, 1200);
+        }).catch(() => showToast('Copy failed.'));
+      });
+    });
+
+    /* =========================================================
+     *  Core: validateURL(url)
+     * ========================================================= */
+    async function validateURL(url) {
+      // Normalise: add scheme if missing
+      let normalised = url.trim();
+      if (!/^https?:\/\//i.test(normalised)) {
+        normalised = 'https://' + normalised;
+      }
+
+      // Show loader
+      elLoader.classList.remove('hidden');
+      elResults.classList.add('hidden');
+
+      try {
+        const resp = await fetch(API_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: normalised }),
+        });
+
+        const data = await resp.json();
+
+        if (!resp.ok) {
+          showToast(data.error || `Server error (${resp.status}).`);
+          return;
+        }
+
+        renderResults(data);
+      } catch (err) {
+        showToast('Network error — is the API endpoint reachable?');
+        console.error('validateURL error:', err);
+      } finally {
+        elLoader.classList.add('hidden');
+      }
+    }
+
+    /* =========================================================
+     *  Render results
+     * ========================================================= */
+    function renderResults(data) {
+      // --- Verdict badge ---
+      const v = (data.Verdict || data.verdict || 'SAFE').toUpperCase();
+      const verdictMap = {
+        SAFE:       { css: 'safe',       icon: '✓', color: 'var(--safe)' },
+        SUSPICIOUS: { css: 'suspicious', icon: '⚠', color: 'var(--warning)' },
+        MALICIOUS:  { css: 'malicious',  icon: '✗', color: 'var(--danger)' },
+      };
+      const vm = verdictMap[v] || verdictMap.SAFE;
+      elVerdictBadge.className = `verdict-badge ${vm.css}`;
+      elVerdictBadge.textContent = `${vm.icon} ${v}`;
+
+      // --- Animated risk score ---
+      const score = data.Risk_Score ?? data.risk_score ?? 0;
+      animateScore(score, vm.color);
+
+      // --- URLs ---
+      elInputUrl.textContent = data.Input_QR_URL || data.input_url || '—';
+      elFinalUrl.textContent = data.Final_Resolved_URL || data.final_url || '—';
+
+      // --- Redirect chain ---
+      const rawChain = data.Redirect_Chain || data.redirect_chain || [];
+      renderChain(rawChain);
+
+      // --- Threat flags ---
+      const rawFlags = data.threat_details || data.Threat_Flags || data.threat_flags || [];
+      renderFlags(rawFlags);
+
+      // --- Performance ---
+      const execMs = data.execution_ms ?? data.execution_time_ms ?? '—';
+      elPerfTime.textContent    = `${execMs} ms`;
+      elPerfCache.textContent   = data.cache_hit ? 'HIT ✓' : 'MISS';
+      elPerfScanned.textContent = data.scanned_at
+        ? new Date(data.scanned_at).toLocaleTimeString()
+        : new Date().toLocaleTimeString();
+
+      // Show & scroll
+      elResults.classList.remove('hidden');
+      elResults.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    /* ---- Animated circular score ---- */
+    function animateScore(score, color) {
+      // Circle circumference: 2 * π * r  (r=56 for desktop)
+      const circumference = 2 * Math.PI * 56;
+      const offset = circumference - (circumference * score / 100);
+
+      elScoreFg.style.stroke = color;
+      // Reset then animate
+      elScoreFg.style.transition = 'none';
+      elScoreFg.style.strokeDasharray = `${circumference}`;
+      elScoreFg.style.strokeDashoffset = `${circumference}`;
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          elScoreFg.style.transition = 'stroke-dashoffset 1.2s ease';
+          elScoreFg.style.strokeDashoffset = `${offset}`;
+        });
+      });
+
+      // Count-up number
+      const duration = 1000;
+      const start = performance.now();
+      function tick(now) {
+        const elapsed = now - start;
+        const progress = Math.min(elapsed / duration, 1);
+        elScoreNum.textContent = Math.round(score * progress);
+        elScoreNum.style.color = color;
+        if (progress < 1) requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    }
+
+    /* ---- Redirect chain ---- */
+    function renderChain(chain) {
+      if (!chain || chain.length === 0) {
+        elChainCtr.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem;">Direct link — no redirects detected.</p>';
+        return;
+      }
+      let html = '';
+      chain.forEach((step, i) => {
+        const isString = typeof step === 'string';
+        const urlStr = isString ? step : (step.url || '');
+        const isLast = (i === chain.length - 1);
+        
+        let statusClass = 'redirect';
+        let statusLabel = '3xx REDIRECT';
+        
+        if (isString) {
+          if (isLast && chain.length > 1) {
+            statusClass = 'ok';
+            statusLabel = 'DESTINATION';
+          } else if (chain.length === 1) {
+            statusClass = 'ok';
+            statusLabel = 'ORIGIN';
+          }
+        } else {
+          const isRedirect = [301, 302, 303, 307, 308].includes(step.status_code);
+          const isOk = step.status_code >= 200 && step.status_code < 300;
+          statusClass = isRedirect ? 'redirect' : (isOk ? 'ok' : 'error');
+          statusLabel = step.status_code || 'STATUS';
+        }
+
+        if (i > 0) html += '<div class="chain-arrow" aria-hidden="true" style="text-align:center;">↓</div>';
+        html += `
+          <div class="chain-step">
+            <span class="chain-hop">Hop ${i}</span>
+            <span class="chain-url">${escHtml(urlStr)}</span>
+            <span class="chain-status ${statusClass}">${statusLabel}</span>
+          </div>`;
+      });
+      elChainCtr.innerHTML = html;
+    }
+
+    /* ---- Threat flags ---- */
+    function renderFlags(flags) {
+      if (!flags || flags.length === 0) {
+        elFlagsCtr.innerHTML = '<p style="color:var(--safe);font-size:.85rem;">✓ No threats detected — URL appears safe.</p>';
+        return;
+      }
+      let html = '';
+      flags.forEach((f) => {
+        const isString = typeof f === 'string';
+        const rule = isString ? 'THREAT' : (f.rule || 'ALERT');
+        const desc = isString ? f : (f.description || '');
+        const weight = isString ? '' : (f.weight ? `+${f.weight}` : '');
+        const isLow = (!isString && f.weight && f.weight <= 20);
+
+        html += `
+          <div class="flag-item${isLow ? ' low-risk' : ''}">
+            <span class="flag-icon">${isLow ? '⚠️' : '🚨'}</span>
+            <div style="flex:1;">
+              <div class="flag-rule">${escHtml(rule)}</div>
+              <div class="flag-desc">${escHtml(desc)}</div>
+            </div>
+            ${weight ? `<span class="flag-weight">${weight}</span>` : ''}
+          </div>`;
+      });
+      elFlagsCtr.innerHTML = html;
+    }
+
+    /* ---- HTML escape helper ---- */
+    function escHtml(str) {
+      const div = document.createElement('div');
+      div.appendChild(document.createTextNode(str));
+      return div.innerHTML;
+    }
+
+  })();
+  </script>
+</body>
+</html>
